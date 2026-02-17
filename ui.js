@@ -119,6 +119,23 @@ const AppUI = (() => {
     }
   }
 
+  /* Speak about whatever constellations are currently visible on screen */
+  function speakVisible() {
+    const visible = AstroScene.getVisibleConstellations();
+    if (visible.length === 0) {
+      GreekTTS.speak('Κούνα το κινητό σου για να βρεις αστερισμούς!');
+      return;
+    }
+    // Speak the most centered visible constellation
+    const id = visible[0];
+    const idx = CONSTELLATION_ORDER.indexOf(id);
+    if (idx !== -1) currentIndex = idx;
+    const narration = NARRATIONS[id];
+    if (narration) {
+      GreekTTS.speak(narration.intro);
+    }
+  }
+
   /* ---- Info Panel ---- */
 
   function openPanel(constellationId) {
@@ -206,7 +223,7 @@ const AppUI = (() => {
   function wireEvents() {
     els.listenBtn?.addEventListener('click', () => {
       createSparkle();
-      speakCurrentIntro();
+      speakVisible();
     });
 
     els.nextBtn?.addEventListener('click', () => {

@@ -200,9 +200,21 @@ const AstroScene = (() => {
         group.appendChild(line);
       });
 
+      // Name label at centroid (slightly offset upward)
+      const label = document.createElement('a-text');
+      const cp = data.centroid.pos;
+      label.setAttribute('value', c.nameEl);
+      label.setAttribute('position', `${cp.x} ${cp.y + 20} ${cp.z}`);
+      label.setAttribute('align', 'center');
+      label.setAttribute('color', '#FFD700');
+      label.setAttribute('width', 200);
+      label.setAttribute('font', 'roboto');
+      label.setAttribute('material', 'shader: flat');
+      label.setAttribute('look-at', '[camera]');
+      group.appendChild(label);
+
       // Tap target — large invisible sphere at centroid
       const tap = document.createElement('a-sphere');
-      const cp = data.centroid.pos;
       tap.setAttribute('position', `${cp.x} ${cp.y} ${cp.z}`);
       tap.setAttribute('radius', 30);
       tap.setAttribute('material', 'shader: flat; opacity: 0; side: double');
@@ -214,7 +226,7 @@ const AstroScene = (() => {
       group.appendChild(tap);
 
       scene.appendChild(group);
-      constellationEntities[id] = { group };
+      constellationEntities[id] = { group, label };
     });
 
     // Setup raycaster on camera for gaze detection
@@ -252,10 +264,14 @@ const AstroScene = (() => {
         lineIdx++;
       });
 
-      // Update tap target
+      // Update label + tap target
+      const cp = data.centroid.pos;
+      const labelEl = constellationEntities[id]?.label;
+      if (labelEl) {
+        labelEl.setAttribute('position', `${cp.x} ${cp.y + 20} ${cp.z}`);
+      }
       const clickable = group.querySelector('.clickable');
       if (clickable) {
-        const cp = data.centroid.pos;
         clickable.setAttribute('position', `${cp.x} ${cp.y} ${cp.z}`);
       }
     });
@@ -542,6 +558,38 @@ const AstroScene = (() => {
     highlightConstellation(constellationId);
   }
 
+  /* Get constellations currently visible in the camera frustum */
+  function getVisibleConstellations() {
+    if (mode === 'fallback') {
+      // In fallback mode all are visible; return all IDs
+      return [...CONSTELLATION_ORDER];
+    }
+    if (!camera || !camera.object3D) return [];
+
+    const cam = camera.object3D;
+    const cameraDir = new THREE.Vector3();
+    cam.getWorldDirection(cameraDir);
+    const camPos = new THREE.Vector3();
+    cam.getWorldPosition(camPos);
+
+    const visible = [];
+    const positions = computePositions();
+
+    CONSTELLATION_ORDER.forEach(id => {
+      const cp = positions[id].centroid.pos;
+      const toConstellation = new THREE.Vector3(cp.x - camPos.x, cp.y - camPos.y, cp.z - camPos.z).normalize();
+      const dot = cameraDir.dot(toConstellation);
+      // dot > 0.3 means roughly within ~72° of center (generous FOV check)
+      if (dot > 0.3) {
+        visible.push({ id, dot });
+      }
+    });
+
+    // Sort by how centered they are (highest dot product = most centered)
+    visible.sort((a, b) => b.dot - a.dot);
+    return visible.map(v => v.id);
+  }
+
   function highlightConstellation(id) {
     // Brief brightness boost
     const group = constellationEntities[id]?.group;
@@ -558,5 +606,5 @@ const AstroScene = (() => {
     });
   }
 
-  return { init, getMode, lookAt, highlightConstellation };
+  return { init, getMode, lookAt, highlightConstellation, getVisibleConstellations };
 })();
