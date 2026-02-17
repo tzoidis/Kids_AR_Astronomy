@@ -81,9 +81,12 @@ const AppUI = (() => {
     if (mode === 'ar' || mode === 'planetarium') {
       createLabels();
       startLabelLoop();
+      // Wait for projection to settle, then speak about what's actually visible
+      setTimeout(() => speakVisible(), 1500);
+    } else {
+      // Fallback mode: all constellations visible, speak first one
+      speakCurrentIntro();
     }
-
-    speakCurrentIntro();
   }
 
   /* ---- HTML Labels (screen-projected) ---- */
