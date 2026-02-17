@@ -10,11 +10,15 @@ const AstroScene = (() => {
   let longitude = 23.73;
   let compassOffset = 0; // degrees, true-north correction
   let scene, camera;
-  let constellationEntities = {}; // id → { group, labelEl }
+  let constellationEntities = {}; // id → { group }
   let gazeInterval = null;
   let lastGazedId = null;
   let onConstellationGaze = null; // callback(constellationId)
   let onConstellationTap = null;  // callback(constellationId)
+
+  // Screen-space label tracking
+  let screenPositions = {}; // id → { x, y, visible }
+  let labelUpdateRunning = false;
 
   // Fallback canvas state
   let fallbackCtx = null;
@@ -44,7 +48,7 @@ const AstroScene = (() => {
 
   /* RA (hours), Dec (degrees) → Alt, Az (degrees) */
   function raDecToAltAz(raH, decDeg, lstDeg, latDeg) {
-    const ha = (lstDeg - raH * 15 + 360) % 360; // hour angle in degrees
+    const ha = (lstDeg - raH * 15 + 360) % 360;
     const haR = ha * DEG;
     const decR = decDeg * DEG;
     const latR = latDeg * DEG;
@@ -200,21 +204,9 @@ const AstroScene = (() => {
         group.appendChild(line);
       });
 
-      // Name label at centroid (slightly offset upward)
-      const label = document.createElement('a-text');
-      const cp = data.centroid.pos;
-      label.setAttribute('value', c.nameEl);
-      label.setAttribute('position', `${cp.x} ${cp.y + 20} ${cp.z}`);
-      label.setAttribute('align', 'center');
-      label.setAttribute('color', '#FFD700');
-      label.setAttribute('width', 200);
-      label.setAttribute('font', 'roboto');
-      label.setAttribute('material', 'shader: flat');
-      label.setAttribute('look-at', '[camera]');
-      group.appendChild(label);
-
       // Tap target — large invisible sphere at centroid
       const tap = document.createElement('a-sphere');
+      const cp = data.centroid.pos;
       tap.setAttribute('position', `${cp.x} ${cp.y} ${cp.z}`);
       tap.setAttribute('radius', 30);
       tap.setAttribute('material', 'shader: flat; opacity: 0; side: double');
@@ -226,14 +218,17 @@ const AstroScene = (() => {
       group.appendChild(tap);
 
       scene.appendChild(group);
-      constellationEntities[id] = { group, label };
+      constellationEntities[id] = { group };
     });
 
-    // Setup raycaster on camera for gaze detection
+    // Setup raycaster on camera
     if (camera) {
       camera.setAttribute('raycaster', 'objects: .clickable; far: 600; interval: 2000');
       camera.setAttribute('cursor', 'rayOrigin: mouse; fuse: false');
     }
+
+    // Start the screen-projection loop for labels + visibility
+    startLabelTracking();
   }
 
   function updatePositions() {
@@ -243,7 +238,6 @@ const AstroScene = (() => {
       const group = constellationEntities[id]?.group;
       if (!group) return;
 
-      // Update star positions
       const spheres = group.querySelectorAll('.star-sphere');
       spheres.forEach((sphere, i) => {
         if (data.stars[i]) {
@@ -252,7 +246,6 @@ const AstroScene = (() => {
         }
       });
 
-      // Update lines
       const lines = group.querySelectorAll('[line]');
       let lineIdx = 0;
       c.lines.forEach(([a, b]) => {
@@ -264,12 +257,7 @@ const AstroScene = (() => {
         lineIdx++;
       });
 
-      // Update label + tap target
       const cp = data.centroid.pos;
-      const labelEl = constellationEntities[id]?.label;
-      if (labelEl) {
-        labelEl.setAttribute('position', `${cp.x} ${cp.y + 20} ${cp.z}`);
-      }
       const clickable = group.querySelector('.clickable');
       if (clickable) {
         clickable.setAttribute('position', `${cp.x} ${cp.y} ${cp.z}`);
@@ -277,7 +265,66 @@ const AstroScene = (() => {
     });
   }
 
-  /* Start gaze checking (AR mode) */
+  /* ---- Screen projection: 3D → 2D for HTML labels & visibility ---- */
+
+  function projectToScreen(worldPos) {
+    if (!scene || !scene.camera) return null;
+
+    const threeCamera = scene.camera;
+    const vec = new THREE.Vector3(worldPos.x, worldPos.y, worldPos.z);
+    vec.project(threeCamera);
+
+    // vec is now in NDC: x,y in [-1, 1], z for depth
+    // Behind camera check: z > 1 means behind
+    if (vec.z > 1) return null;
+
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const x = (vec.x * 0.5 + 0.5) * w;
+    const y = (-vec.y * 0.5 + 0.5) * h;
+
+    // Check if on screen (with some margin)
+    const margin = 100;
+    const onScreen = x > -margin && x < w + margin && y > -margin && y < h + margin;
+
+    return { x, y, onScreen };
+  }
+
+  function startLabelTracking() {
+    if (labelUpdateRunning) return;
+    labelUpdateRunning = true;
+
+    const positions = computePositions();
+    // Cache centroid world positions (recalculated on updatePositions)
+    let centroidCache = {};
+    CONSTELLATION_ORDER.forEach(id => {
+      centroidCache[id] = positions[id].centroid.pos;
+    });
+
+    function tick() {
+      CONSTELLATION_ORDER.forEach(id => {
+        // Read centroid from the tap target entity (stays in sync after updatePositions)
+        const clickable = constellationEntities[id]?.group?.querySelector('.clickable');
+        if (clickable) {
+          const pos = clickable.getAttribute('position');
+          centroidCache[id] = { x: pos.x, y: pos.y, z: pos.z };
+        }
+
+        const projected = projectToScreen(centroidCache[id]);
+        if (projected) {
+          screenPositions[id] = { x: projected.x, y: projected.y, visible: projected.onScreen };
+        } else {
+          screenPositions[id] = { x: 0, y: 0, visible: false };
+        }
+      });
+
+      requestAnimationFrame(tick);
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  /* Start gaze checking (AR/planetarium mode) */
   function startGazeDetection() {
     if (gazeInterval) clearInterval(gazeInterval);
     gazeInterval = setInterval(() => {
@@ -340,12 +387,11 @@ const AstroScene = (() => {
     const H = ctx.canvas.height;
     const dpr = window.devicePixelRatio || 1;
 
-    // Clear
     ctx.clearRect(0, 0, W, H);
 
-    // Draw random background stars
+    // Background stars
     ctx.fillStyle = '#fff';
-    const rng = mulberry32(42); // Seeded random for consistency
+    const rng = mulberry32(42);
     for (let i = 0; i < 200; i++) {
       const sx = rng() * W;
       const sy = rng() * H;
@@ -363,7 +409,7 @@ const AstroScene = (() => {
     const cols = W > H ? 3 : 2;
     const rows = Math.ceil(ids.length / cols);
     const cellW = W / cols;
-    const cellH = H / (rows + 0.5); // Extra space at top
+    const cellH = H / (rows + 0.5);
 
     ids.forEach((id, idx) => {
       const c = CONSTELLATIONS[id];
@@ -372,11 +418,10 @@ const AstroScene = (() => {
       const cx = cellW * (col + 0.5);
       const cy = cellH * (row + 0.8);
 
-      // Normalize star positions to fit cell
       const bounds = getConstellationBounds(c);
       const scale = Math.min(cellW * 0.6, cellH * 0.5) / Math.max(bounds.rangeRA, bounds.rangeDec, 1);
 
-      // Draw lines
+      // Lines
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 1.5 * dpr;
       c.lines.forEach(([a, b]) => {
@@ -388,7 +433,7 @@ const AstroScene = (() => {
         ctx.stroke();
       });
 
-      // Draw stars
+      // Stars
       c.stars.forEach(s => {
         const [sx, sy] = starToCell(s, bounds, cx, cy, scale);
         const r = Math.max(2, (4 - s.mag) * 1.2) * dpr;
@@ -396,7 +441,6 @@ const AstroScene = (() => {
         ctx.beginPath();
         ctx.arc(sx, sy, r, 0, Math.PI * 2);
         ctx.fill();
-        // Glow
         ctx.shadowColor = '#FFD700';
         ctx.shadowBlur = 8 * dpr;
         ctx.fill();
@@ -410,7 +454,6 @@ const AstroScene = (() => {
       ctx.textAlign = 'center';
       ctx.fillText(c.nameEl, cx, cy + cellH * 0.35);
 
-      // Hit area
       fallbackHitAreas.push({
         id, x: cx, y: cy,
         w: cellW * 0.8, h: cellH * 0.8,
@@ -437,11 +480,11 @@ const AstroScene = (() => {
 
   function starToCell(star, bounds, cx, cy, scale) {
     const x = cx + (star.raH - bounds.centerRA) * scale;
-    const y = cy - (star.decDeg - bounds.centerDec) * scale; // Dec increases upward
+    const y = cy - (star.decDeg - bounds.centerDec) * scale;
     return [x, y];
   }
 
-  /* Seeded PRNG (Mulberry32) for consistent background stars */
+  /* Seeded PRNG (Mulberry32) */
   function mulberry32(a) {
     return function () {
       let t = a += 0x6D2B79F5;
@@ -451,23 +494,20 @@ const AstroScene = (() => {
     };
   }
 
-  /* ---- Planetarium sky (rendered background stars inside A-Frame) ---- */
+  /* ---- Planetarium sky ---- */
 
   function createSkySphere() {
     scene = document.querySelector('a-scene');
     if (!scene) return;
 
-    // Dark sky sphere
     const sky = document.createElement('a-sphere');
     sky.setAttribute('radius', SKY_RADIUS + 50);
     sky.setAttribute('material', 'shader: flat; color: #0a0a2e; side: back');
     sky.setAttribute('id', 'sky-sphere');
     scene.appendChild(sky);
 
-    // Scatter random background stars as small spheres
     const rng = mulberry32(123);
     for (let i = 0; i < 300; i++) {
-      // Random point on sphere using spherical coordinates
       const theta = rng() * Math.PI * 2;
       const phi = Math.acos(2 * rng() - 1);
       const r = SKY_RADIUS + 40;
@@ -496,7 +536,6 @@ const AstroScene = (() => {
     const hasOrientation = hasGyroscope();
 
     if (requestedMode === 'outdoor') {
-      // AR mode: camera + gyroscope
       const hasCamera = await startCamera();
       if (hasCamera && hasOrientation) {
         mode = 'ar';
@@ -505,7 +544,6 @@ const AstroScene = (() => {
         startGazeDetection();
         setInterval(updatePositions, 60000);
       } else {
-        // Camera failed, fall back to planetarium if gyroscope, else 2D
         if (hasOrientation) {
           requestedMode = 'indoor';
         } else {
@@ -515,13 +553,11 @@ const AstroScene = (() => {
     }
 
     if (requestedMode === 'indoor') {
-      // Planetarium mode: rendered sky + gyroscope
       const video = document.getElementById('camera-feed');
       if (video) video.style.display = 'none';
 
       if (hasOrientation) {
         mode = 'planetarium';
-        // Make A-Frame canvas opaque (no camera behind it)
         const sceneEl = document.querySelector('a-scene');
         if (sceneEl) {
           sceneEl.setAttribute('renderer', 'alpha: false; antialias: true; colorManagement: true');
@@ -538,7 +574,6 @@ const AstroScene = (() => {
     }
 
     if (requestedMode === '_fallback' || mode === 'none') {
-      // 2D fallback: no gyroscope at all
       mode = 'fallback';
       const sceneEl = document.querySelector('a-scene');
       if (sceneEl) sceneEl.style.display = 'none';
@@ -552,46 +587,41 @@ const AstroScene = (() => {
 
   function getMode() { return mode; }
 
-  /* Navigate to a constellation (AR mode): smoothly rotate scene to look at it */
   function lookAt(constellationId) {
     if (mode !== 'ar' && mode !== 'planetarium') return;
     highlightConstellation(constellationId);
   }
 
-  /* Get constellations currently visible in the camera frustum */
+  /* Get constellations currently visible on screen, sorted by distance to center */
   function getVisibleConstellations() {
     if (mode === 'fallback') {
-      // In fallback mode all are visible; return all IDs
       return [...CONSTELLATION_ORDER];
     }
-    if (!camera || !camera.object3D) return [];
 
-    const cam = camera.object3D;
-    const cameraDir = new THREE.Vector3();
-    cam.getWorldDirection(cameraDir);
-    const camPos = new THREE.Vector3();
-    cam.getWorldPosition(camPos);
-
+    const cx = window.innerWidth / 2;
+    const cy = window.innerHeight / 2;
     const visible = [];
-    const positions = computePositions();
 
     CONSTELLATION_ORDER.forEach(id => {
-      const cp = positions[id].centroid.pos;
-      const toConstellation = new THREE.Vector3(cp.x - camPos.x, cp.y - camPos.y, cp.z - camPos.z).normalize();
-      const dot = cameraDir.dot(toConstellation);
-      // dot > 0.3 means roughly within ~72° of center (generous FOV check)
-      if (dot > 0.3) {
-        visible.push({ id, dot });
+      const sp = screenPositions[id];
+      if (sp && sp.visible) {
+        const dx = sp.x - cx;
+        const dy = sp.y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        visible.push({ id, dist });
       }
     });
 
-    // Sort by how centered they are (highest dot product = most centered)
-    visible.sort((a, b) => b.dot - a.dot);
+    visible.sort((a, b) => a.dist - b.dist);
     return visible.map(v => v.id);
   }
 
+  /* Get current screen positions for labels (called by ui.js) */
+  function getScreenPositions() {
+    return screenPositions;
+  }
+
   function highlightConstellation(id) {
-    // Brief brightness boost
     const group = constellationEntities[id]?.group;
     if (!group) return;
     const stars = group.querySelectorAll('.star-sphere');
@@ -606,5 +636,5 @@ const AstroScene = (() => {
     });
   }
 
-  return { init, getMode, lookAt, highlightConstellation, getVisibleConstellations };
+  return { init, getMode, lookAt, highlightConstellation, getVisibleConstellations, getScreenPositions };
 })();

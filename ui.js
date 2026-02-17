@@ -3,6 +3,8 @@
 const AppUI = (() => {
   let currentIndex = 0;
   let panelOpen = false;
+  let labelElements = {}; // id → HTMLElement
+  let labelAnimFrame = null;
 
   /* ---- Element references ---- */
   const $ = (sel) => document.querySelector(sel);
@@ -13,6 +15,7 @@ const AppUI = (() => {
     els.startOutdoorBtn = $('#start-outdoor-btn');
     els.startIndoorBtn = $('#start-indoor-btn');
     els.uiOverlay = $('#ui-overlay');
+    els.labelContainer = $('#label-container');
     els.listenBtn = $('#listen-btn');
     els.nextBtn = $('#next-btn');
     els.prevBtn = $('#prev-btn');
@@ -30,7 +33,6 @@ const AppUI = (() => {
   /* ---- Welcome Screen ---- */
 
   function setupWelcome() {
-    // Generate random stars in background
     const starsBg = els.welcome?.querySelector('.stars-bg');
     if (starsBg) {
       for (let i = 0; i < 60; i++) {
@@ -49,13 +51,9 @@ const AppUI = (() => {
   }
 
   async function handleStart(requestedMode) {
-    // iOS speech unlock (must be in user gesture)
     GreekTTS.unlock();
 
-    // Show loading
-    if (els.loading) {
-      els.loading.classList.add('active');
-    }
+    if (els.loading) els.loading.classList.add('active');
     if (els.welcome) {
       els.welcome.style.opacity = '0';
       els.welcome.style.transition = 'opacity 0.4s';
@@ -69,22 +67,61 @@ const AppUI = (() => {
       } catch (e) { /* User denied, we'll use fallback */ }
     }
 
-    // Init with requested mode
     const mode = await AstroScene.init({
       onGaze: handleConstellationGaze,
       onTap: handleConstellationTap,
       requestedMode,
     });
 
-    // Hide loading & welcome
     if (els.loading) els.loading.classList.remove('active');
     if (els.welcome) els.welcome.style.display = 'none';
-
-    // Show UI
     if (els.uiOverlay) els.uiOverlay.style.display = 'block';
 
-    // Speak intro for first constellation
+    // Create HTML labels for 3D modes (ar / planetarium)
+    if (mode === 'ar' || mode === 'planetarium') {
+      createLabels();
+      startLabelLoop();
+    }
+
     speakCurrentIntro();
+  }
+
+  /* ---- HTML Labels (screen-projected) ---- */
+
+  function createLabels() {
+    if (!els.labelContainer) return;
+    CONSTELLATION_ORDER.forEach(id => {
+      const c = CONSTELLATIONS[id];
+      const el = document.createElement('div');
+      el.className = 'sky-label';
+      el.textContent = c.nameEl;
+      el.dataset.constellation = id;
+      el.addEventListener('click', () => {
+        handleConstellationTap(id);
+      });
+      els.labelContainer.appendChild(el);
+      labelElements[id] = el;
+    });
+  }
+
+  function startLabelLoop() {
+    function tick() {
+      const positions = AstroScene.getScreenPositions();
+      CONSTELLATION_ORDER.forEach(id => {
+        const el = labelElements[id];
+        if (!el) return;
+        const sp = positions[id];
+        if (sp && sp.visible) {
+          el.style.left = sp.x + 'px';
+          el.style.top = sp.y + 'px';
+          el.classList.add('visible');
+        } else {
+          el.classList.remove('visible');
+        }
+      });
+      labelAnimFrame = requestAnimationFrame(tick);
+    }
+    labelAnimFrame = requestAnimationFrame(tick);
   }
 
   /* ---- Constellation Navigation ---- */
@@ -119,14 +156,13 @@ const AppUI = (() => {
     }
   }
 
-  /* Speak about whatever constellations are currently visible on screen */
+  /* Speak about whatever constellation is most centered on screen */
   function speakVisible() {
     const visible = AstroScene.getVisibleConstellations();
     if (visible.length === 0) {
       GreekTTS.speak('Κούνα το κινητό σου για να βρεις αστερισμούς!');
       return;
     }
-    // Speak the most centered visible constellation
     const id = visible[0];
     const idx = CONSTELLATION_ORDER.indexOf(id);
     if (idx !== -1) currentIndex = idx;
@@ -142,14 +178,12 @@ const AppUI = (() => {
     const c = CONSTELLATIONS[constellationId];
     if (!c) return;
 
-    // Set panel content
     if (els.panelName) els.panelName.textContent = c.nameEl;
     if (els.panelNameLatin) els.panelNameLatin.textContent = c.nameLatin;
 
     const narration = NARRATIONS[constellationId];
     if (els.panelDesc) els.panelDesc.textContent = narration?.detail || '';
 
-    // Load constellation SVG
     if (els.panelSvg) {
       els.panelSvg.innerHTML = '';
       const img = document.createElement('img');
@@ -173,7 +207,6 @@ const AppUI = (() => {
   /* ---- Event Handlers ---- */
 
   function handleConstellationGaze(id) {
-    // Auto-narrate when gazing at a constellation
     const idx = CONSTELLATION_ORDER.indexOf(id);
     if (idx !== -1 && idx !== currentIndex) {
       currentIndex = idx;
@@ -192,7 +225,6 @@ const AppUI = (() => {
   /* ---- Sparkle Effect ---- */
 
   function createSparkle(x, y) {
-    // Default to center if no coordinates
     if (x === undefined) x = window.innerWidth / 2;
     if (y === undefined) y = window.innerHeight / 2;
 
@@ -246,7 +278,6 @@ const AppUI = (() => {
       GreekTTS.speak('Γεια σου! Πάμε να εξερευνήσουμε τα αστέρια!');
     });
 
-    // Close panel on outside tap
     els.uiOverlay?.addEventListener('click', (e) => {
       if (panelOpen && e.target === els.uiOverlay) {
         closePanel();
@@ -263,7 +294,6 @@ const AppUI = (() => {
     GreekTTS.init();
   }
 
-  // Auto-init when DOM ready
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

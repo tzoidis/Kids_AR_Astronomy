@@ -349,20 +349,39 @@ html, body {
 }
 #panel-close-btn:active { transform: scale(0.9); }
 
-/* ---------- Constellation Labels (AR overlay) ---------- */
-.constellation-label {
+/* ---------- Label container (screen-projected labels) ---------- */
+#label-container {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.sky-label {
   position: absolute;
   font-family: 'Fredoka One', cursive;
-  font-size: 0.9rem;
+  font-size: 1rem;
   color: #FFD700;
-  text-shadow: 0 0 8px rgba(255,215,0,0.6), 0 0 20px rgba(255,215,0,0.3);
+  text-shadow: 0 0 8px rgba(255,215,0,0.7), 0 0 20px rgba(255,215,0,0.3), 0 1px 3px rgba(0,0,0,0.8);
   white-space: nowrap;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 8px 14px;
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translate(-50%, -50%);
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity 0.25s;
 }
-.constellation-label.visible {
+.sky-label.visible {
   opacity: 1;
+}
+.sky-label:active {
+  transform: translate(-50%, -50%) scale(1.15);
 }
 
 /* ---------- Sparkle Effect ---------- */
