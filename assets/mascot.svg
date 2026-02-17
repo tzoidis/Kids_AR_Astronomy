@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- Friendly astronaut mascot -->
+  <!-- Body -->
+  <ellipse cx="60" cy="78" rx="22" ry="28" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="2"/>
+  <!-- Helmet -->
+  <circle cx="60" cy="42" r="26" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="2"/>
+  <!-- Visor -->
+  <circle cx="60" cy="42" r="18" fill="#1a1a5e"/>
+  <ellipse cx="60" cy="40" rx="16" ry="14" fill="#2a2a8e" opacity="0.8"/>
+  <!-- Visor shine -->
+  <ellipse cx="53" cy="36" rx="6" ry="4" fill="rgba(255,255,255,0.3)" transform="rotate(-15 53 36)"/>
+  <!-- Eyes (inside visor) -->
+  <circle cx="53" cy="42" r="3.5" fill="#FFD700"/>
+  <circle cx="67" cy="42" r="3.5" fill="#FFD700"/>
+  <circle cx="54" cy="41" r="1.5" fill="#FFF"/>
+  <circle cx="68" cy="41" r="1.5" fill="#FFF"/>
+  <!-- Smile -->
+  <path d="M54 48 Q60 54 66 48" stroke="#FFD700" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Antenna -->
+  <line x1="60" y1="16" x2="60" y2="8" stroke="#B0B0C8" stroke-width="2"/>
+  <circle cx="60" cy="6" r="4" fill="#FFD700">
+    <animate attributeName="opacity" values="1;0.5;1" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <!-- Arms -->
+  <ellipse cx="34" cy="72" rx="8" ry="5" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="1.5" transform="rotate(-20 34 72)"/>
+  <ellipse cx="86" cy="72" rx="8" ry="5" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="1.5" transform="rotate(20 86 72)"/>
+  <!-- Waving hand -->
+  <circle cx="93" cy="66" r="5" fill="#FFDAB9" stroke="#E8C8A0" stroke-width="1"/>
+  <!-- Legs -->
+  <ellipse cx="48" cy="104" rx="7" ry="5" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="1.5"/>
+  <ellipse cx="72" cy="104" rx="7" ry="5" fill="#E8E8F0" stroke="#B0B0C8" stroke-width="1.5"/>
+  <!-- Backpack detail -->
+  <rect x="44" y="60" width="32" height="20" rx="4" fill="none" stroke="#B0B0C8" stroke-width="1.5"/>
+  <!-- Star badge -->
+  <polygon points="60,64 62,68 66,68 63,71 64,75 60,72 56,75 57,71 54,68 58,68" fill="#FFD700"/>
+</svg>

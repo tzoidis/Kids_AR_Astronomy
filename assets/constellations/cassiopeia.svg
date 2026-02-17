@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Cassiopeia W-shape line art -->
+  <g stroke="#FFD700" stroke-width="1.5" stroke-linecap="round" opacity="0.7">
+    <line x1="10" y1="40" x2="28" y2="60"/>
+    <line x1="28" y1="60" x2="45" y2="35"/>
+    <line x1="45" y1="35" x2="65" y2="62"/>
+    <line x1="65" y1="62" x2="90" y2="38"/>
+  </g>
+  <g fill="#FFD700">
+    <circle cx="10" cy="40" r="3"><animate attributeName="opacity" values="1;0.6;1" dur="2.6s" repeatCount="indefinite"/></circle>
+    <circle cx="28" cy="60" r="3"/>
+    <circle cx="45" cy="35" r="3.5"><animate attributeName="opacity" values="1;0.6;1" dur="3s" repeatCount="indefinite"/></circle>
+    <circle cx="65" cy="62" r="2.5"/>
+    <circle cx="90" cy="38" r="2.5"/>
+  </g>
+</svg>

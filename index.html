@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Αστέρια — AR Αστρονομία για Παιδιά</title>
+
+  <!-- A-Frame (3D renderer) -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Camera video feed (behind everything) -->
+  <video id="camera-feed" playsinline autoplay muted style="display:none;"></video>
+
+  <!-- Fallback 2D canvas (when no gyroscope) -->
+  <canvas id="fallback-canvas"></canvas>
+
+  <!-- A-Frame 3D Scene (transparent overlay on camera) -->
+  <a-scene
+    embedded
+    renderer="alpha: true; antialias: true; colorManagement: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+    loading-screen="enabled: false"
+    style="background: transparent;"
+  >
+    <a-camera
+      id="ar-camera"
+      look-controls="magicWindowTrackingEnabled: true; touchEnabled: false"
+      wasd-controls="enabled: false"
+      fov="80"
+    ></a-camera>
+  </a-scene>
+
+  <!-- ====== Welcome Screen ====== -->
+  <div id="welcome-screen">
+    <div class="stars-bg"></div>
+    <div class="content">
+      <img class="mascot-img" src="assets/mascot.svg" alt="Αστροναύτης">
+      <h1>Αστέρια ✦</h1>
+      <p class="subtitle">Πάμε να δούμε τα αστέρια!</p>
+      <button id="start-btn">🚀 Ξεκίνα!</button>
+      <p class="permission-note">Θα χρειαστούμε την κάμερά σου για να δούμε τον ουρανό</p>
+    </div>
+  </div>
+
+  <!-- ====== Loading ====== -->
+  <div id="loading-indicator">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- ====== Main UI Overlay ====== -->
+  <div id="ui-overlay">
+
+    <!-- Top Bar -->
+    <div id="top-bar">
+      <span class="app-title">✦ Αστέρια</span>
+    </div>
+
+    <!-- Mascot -->
+    <img id="mascot" src="assets/mascot.svg" alt="Αστροναύτης">
+
+    <!-- Bottom Controls -->
+    <div id="bottom-controls">
+      <button class="ctrl-btn" id="prev-btn">◀ Πίσω</button>
+      <button class="ctrl-btn" id="listen-btn">🔊 Άκου!</button>
+      <button class="ctrl-btn" id="next-btn">Επόμενο ▶</button>
+    </div>
+
+    <!-- Info Panel (bottom sheet) -->
+    <div id="info-panel">
+      <div class="handle"></div>
+      <div class="constellation-header">
+        <div class="constellation-svg" id="panel-constellation-svg"></div>
+        <div>
+          <div class="constellation-name" id="panel-constellation-name"></div>
+          <div class="constellation-name-latin" id="panel-constellation-name-latin"></div>
+        </div>
+      </div>
+      <p class="constellation-desc" id="panel-constellation-desc"></p>
+      <div class="panel-buttons">
+        <button id="panel-listen-btn">🔊 Άκου!</button>
+        <button id="panel-close-btn">✕</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ====== App Scripts (order matters) ====== -->
+  <script src="stars.js"></script>
+  <script src="narrations.js"></script>
+  <script src="speech.js"></script>
+  <script src="ar-scene.js"></script>
+  <script src="ui.js"></script>
+
+</body>
+</html>

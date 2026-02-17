@@ -1,0 +1,415 @@
+/* ===== Greek AR Astronomy App — style.css ===== */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;900&display=swap');
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: 'Nunito', sans-serif;
+  background: #0a0a2e;
+  color: #fff;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* ---------- Camera video (behind everything) ---------- */
+#camera-feed {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  background: #000;
+}
+
+/* ---------- A-Frame scene (transparent over camera) ---------- */
+.a-scene {
+  position: fixed !important; inset: 0 !important;
+  z-index: 1 !important;
+}
+.a-scene canvas {
+  background: transparent !important;
+}
+
+/* ---------- Fallback 2D canvas ---------- */
+#fallback-canvas {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+  display: none;
+  background: radial-gradient(ellipse at center, #0f0f3d 0%, #0a0a2e 70%, #050519 100%);
+}
+
+/* ---------- UI Overlay ---------- */
+#ui-overlay {
+  position: fixed; inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: none;
+}
+#ui-overlay > * { pointer-events: auto; }
+
+/* ---------- Welcome Screen ---------- */
+#welcome-screen {
+  position: fixed; inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, #1a1a5e 0%, #0a0a2e 60%, #050519 100%);
+  text-align: center;
+  padding: 2rem;
+}
+
+#welcome-screen .stars-bg {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  z-index: 0;
+}
+#welcome-screen .stars-bg .star-dot {
+  position: absolute;
+  width: 3px; height: 3px;
+  background: #fff;
+  border-radius: 50%;
+  animation: twinkle 2s ease-in-out infinite alternate;
+}
+
+#welcome-screen .content {
+  position: relative;
+  z-index: 1;
+}
+
+#welcome-screen .mascot-img {
+  width: 120px; height: 120px;
+  margin-bottom: 1.5rem;
+  animation: float 3s ease-in-out infinite;
+  filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.4));
+}
+
+#welcome-screen h1 {
+  font-family: 'Fredoka One', cursive;
+  font-size: 2rem;
+  color: #FFD700;
+  text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+  margin-bottom: 0.5rem;
+}
+
+#welcome-screen .subtitle {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: 2rem;
+}
+
+#start-btn {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.5rem;
+  padding: 1rem 3rem;
+  border: none;
+  border-radius: 50px;
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1a1a5e;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.5);
+  transition: transform 0.2s, box-shadow 0.2s;
+  min-width: 200px;
+  min-height: 60px;
+}
+#start-btn:active {
+  transform: scale(0.95);
+  box-shadow: 0 2px 10px rgba(255, 215, 0, 0.4);
+}
+
+#welcome-screen .permission-note {
+  margin-top: 1.5rem;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.5);
+  max-width: 280px;
+}
+
+/* ---------- Top Bar ---------- */
+#top-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  padding: 12px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(to bottom, rgba(10,10,46,0.7) 0%, transparent 100%);
+}
+
+#top-bar .app-title {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.1rem;
+  color: #FFD700;
+  text-shadow: 0 0 10px rgba(255,215,0,0.3);
+}
+
+/* ---------- Mascot (corner) ---------- */
+#mascot {
+  position: absolute;
+  bottom: 120px; right: 16px;
+  width: 56px; height: 56px;
+  animation: float 4s ease-in-out infinite;
+  filter: drop-shadow(0 0 10px rgba(255,215,0,0.3));
+  cursor: pointer;
+  z-index: 11;
+}
+
+/* ---------- Bottom Controls ---------- */
+#bottom-controls {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: linear-gradient(to top, rgba(10,10,46,0.8) 0%, transparent 100%);
+}
+
+.ctrl-btn {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  border: none;
+  border-radius: 50px;
+  padding: 14px 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  min-width: 56px;
+  justify-content: center;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.ctrl-btn:active {
+  transform: scale(0.93);
+}
+
+#listen-btn {
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1a1a5e;
+  font-size: 1.1rem;
+  box-shadow: 0 3px 15px rgba(255,215,0,0.4);
+}
+
+#next-btn {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.3);
+  backdrop-filter: blur(8px);
+}
+
+#prev-btn {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border: 2px solid rgba(255,255,255,0.3);
+  backdrop-filter: blur(8px);
+}
+
+/* ---------- Info Panel (bottom sheet) ---------- */
+#info-panel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(15, 15, 60, 0.95);
+  backdrop-filter: blur(16px);
+  border-radius: 24px 24px 0 0;
+  padding: 20px 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  transform: translateY(100%);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 20;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+#info-panel.open {
+  transform: translateY(0);
+}
+
+#info-panel .handle {
+  width: 40px; height: 4px;
+  background: rgba(255,255,255,0.3);
+  border-radius: 2px;
+  margin: 0 auto 16px;
+}
+
+#info-panel .constellation-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+#info-panel .constellation-svg {
+  width: 80px; height: 80px;
+  flex-shrink: 0;
+}
+
+#info-panel .constellation-name {
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.5rem;
+  color: #FFD700;
+}
+
+#info-panel .constellation-name-latin {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.5);
+}
+
+#info-panel .constellation-desc {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.85);
+  margin-bottom: 16px;
+}
+
+#info-panel .panel-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+#panel-listen-btn {
+  flex: 1;
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1a1a5e;
+  font-family: 'Fredoka One', cursive;
+  font-size: 1.1rem;
+  border: none;
+  border-radius: 50px;
+  padding: 14px 20px;
+  cursor: pointer;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.15s;
+}
+#panel-listen-btn:active { transform: scale(0.95); }
+
+#panel-close-btn {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 2px solid rgba(255,255,255,0.2);
+  color: #fff;
+  font-size: 1.3rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s;
+}
+#panel-close-btn:active { transform: scale(0.9); }
+
+/* ---------- Constellation Labels (AR overlay) ---------- */
+.constellation-label {
+  position: absolute;
+  font-family: 'Fredoka One', cursive;
+  font-size: 0.9rem;
+  color: #FFD700;
+  text-shadow: 0 0 8px rgba(255,215,0,0.6), 0 0 20px rgba(255,215,0,0.3);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.constellation-label.visible {
+  opacity: 1;
+}
+
+/* ---------- Sparkle Effect ---------- */
+.sparkle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 50;
+}
+.sparkle-particle {
+  position: absolute;
+  width: 6px; height: 6px;
+  background: #FFD700;
+  border-radius: 50%;
+  animation: sparkle-fly 0.7s ease-out forwards;
+}
+
+@keyframes sparkle-fly {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0);
+  }
+}
+
+/* ---------- Animations ---------- */
+@keyframes twinkle {
+  0% { opacity: 0.3; transform: scale(0.8); }
+  100% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255,215,0,0.3); }
+  50% { box-shadow: 0 0 25px rgba(255,215,0,0.6); }
+}
+
+/* ---------- Loading indicator ---------- */
+#loading-indicator {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10,10,46,0.9);
+}
+#loading-indicator.active {
+  display: flex;
+}
+#loading-indicator .spinner {
+  width: 48px; height: 48px;
+  border: 4px solid rgba(255,215,0,0.2);
+  border-top-color: #FFD700;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- Fallback star map labels ---------- */
+.fallback-label {
+  position: absolute;
+  font-family: 'Fredoka One', cursive;
+  font-size: 0.85rem;
+  color: #FFD700;
+  text-shadow: 0 0 6px rgba(255,215,0,0.5);
+  cursor: pointer;
+  padding: 8px 12px;
+  min-width: 60px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.fallback-label:active {
+  transform: scale(1.1);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 360px) {
+  #welcome-screen h1 { font-size: 1.6rem; }
+  #start-btn { font-size: 1.2rem; padding: 0.8rem 2rem; }
+  .ctrl-btn { padding: 12px 18px; font-size: 0.9rem; }
+}

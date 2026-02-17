@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Leo constellation line art -->
+  <g stroke="#FFD700" stroke-width="1.5" stroke-linecap="round" opacity="0.7">
+    <!-- Sickle (head) -->
+    <line x1="20" y1="55" x2="25" y2="40"/>
+    <line x1="25" y1="40" x2="30" y2="30"/>
+    <line x1="30" y1="30" x2="32" y2="18"/>
+    <line x1="32" y1="18" x2="25" y2="12"/>
+    <!-- Back -->
+    <line x1="30" y1="30" x2="55" y2="28"/>
+    <line x1="55" y1="28" x2="85" y2="35"/>
+    <!-- Belly -->
+    <line x1="20" y1="55" x2="60" y2="52"/>
+    <line x1="60" y1="52" x2="85" y2="35"/>
+  </g>
+  <g fill="#FFD700">
+    <circle cx="20" cy="55" r="4"><animate attributeName="opacity" values="1;0.5;1" dur="2.5s" repeatCount="indefinite"/></circle><!-- Regulus -->
+    <circle cx="85" cy="35" r="3.5"><animate attributeName="opacity" values="1;0.6;1" dur="3s" repeatCount="indefinite"/></circle><!-- Denebola -->
+    <circle cx="30" cy="30" r="3"/>
+    <circle cx="55" cy="28" r="2.5"/>
+    <circle cx="60" cy="52" r="2.5"/>
+    <circle cx="25" cy="40" r="2.5"/>
+    <circle cx="32" cy="18" r="2.5"/>
+    <circle cx="25" cy="12" r="2.5"/>
+  </g>
+</svg>
