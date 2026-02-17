@@ -10,7 +10,8 @@ const AppUI = (() => {
 
   function cacheElements() {
     els.welcome = $('#welcome-screen');
-    els.startBtn = $('#start-btn');
+    els.startOutdoorBtn = $('#start-outdoor-btn');
+    els.startIndoorBtn = $('#start-indoor-btn');
     els.uiOverlay = $('#ui-overlay');
     els.listenBtn = $('#listen-btn');
     els.nextBtn = $('#next-btn');
@@ -43,10 +44,11 @@ const AppUI = (() => {
       }
     }
 
-    els.startBtn?.addEventListener('click', handleStart);
+    els.startOutdoorBtn?.addEventListener('click', () => handleStart('outdoor'));
+    els.startIndoorBtn?.addEventListener('click', () => handleStart('indoor'));
   }
 
-  async function handleStart() {
+  async function handleStart(requestedMode) {
     // iOS speech unlock (must be in user gesture)
     GreekTTS.unlock();
 
@@ -67,10 +69,11 @@ const AppUI = (() => {
       } catch (e) { /* User denied, we'll use fallback */ }
     }
 
-    // Init AR / fallback
+    // Init with requested mode
     const mode = await AstroScene.init({
       onGaze: handleConstellationGaze,
       onTap: handleConstellationTap,
+      requestedMode,
     });
 
     // Hide loading & welcome

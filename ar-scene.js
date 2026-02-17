@@ -5,7 +5,7 @@ const AstroScene = (() => {
   const RAD = 180 / Math.PI;
   const SKY_RADIUS = 500;
 
-  let mode = 'none'; // 'ar' | 'fallback'
+  let mode = 'none'; // 'ar' | 'planetarium' | 'fallback'
   let latitude = 37.98;  // Default: Athens, Greece
   let longitude = 23.73;
   let compassOffset = 0; // degrees, true-north correction
@@ -435,28 +435,94 @@ const AstroScene = (() => {
     };
   }
 
+  /* ---- Planetarium sky (rendered background stars inside A-Frame) ---- */
+
+  function createSkySphere() {
+    scene = document.querySelector('a-scene');
+    if (!scene) return;
+
+    // Dark sky sphere
+    const sky = document.createElement('a-sphere');
+    sky.setAttribute('radius', SKY_RADIUS + 50);
+    sky.setAttribute('material', 'shader: flat; color: #0a0a2e; side: back');
+    sky.setAttribute('id', 'sky-sphere');
+    scene.appendChild(sky);
+
+    // Scatter random background stars as small spheres
+    const rng = mulberry32(123);
+    for (let i = 0; i < 300; i++) {
+      // Random point on sphere using spherical coordinates
+      const theta = rng() * Math.PI * 2;
+      const phi = Math.acos(2 * rng() - 1);
+      const r = SKY_RADIUS + 40;
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
+
+      const dot = document.createElement('a-sphere');
+      const size = rng() * 1.2 + 0.3;
+      dot.setAttribute('position', `${x} ${y} ${z}`);
+      dot.setAttribute('radius', size);
+      const brightness = Math.floor(180 + rng() * 75);
+      dot.setAttribute('material', `shader: flat; color: rgb(${brightness},${brightness},${Math.min(255, brightness + 30)}); opacity: ${0.4 + rng() * 0.6}`);
+      scene.appendChild(dot);
+    }
+  }
+
   /* ---- Public API ---- */
 
-  async function init({ onGaze, onTap }) {
+  async function init({ onGaze, onTap, requestedMode }) {
     onConstellationGaze = onGaze;
     onConstellationTap = onTap;
 
     initGeolocation();
 
-    // Try AR mode
     const hasOrientation = hasGyroscope();
-    const hasCamera = await startCamera();
 
-    if (hasCamera && hasOrientation) {
-      mode = 'ar';
-      initCompass();
-      initARScene();
-      startGazeDetection();
+    if (requestedMode === 'outdoor') {
+      // AR mode: camera + gyroscope
+      const hasCamera = await startCamera();
+      if (hasCamera && hasOrientation) {
+        mode = 'ar';
+        initCompass();
+        initARScene();
+        startGazeDetection();
+        setInterval(updatePositions, 60000);
+      } else {
+        // Camera failed, fall back to planetarium if gyroscope, else 2D
+        if (hasOrientation) {
+          requestedMode = 'indoor';
+        } else {
+          requestedMode = '_fallback';
+        }
+      }
+    }
 
-      // Update positions every 60 seconds
-      setInterval(updatePositions, 60000);
-    } else {
-      // Fallback mode
+    if (requestedMode === 'indoor') {
+      // Planetarium mode: rendered sky + gyroscope
+      const video = document.getElementById('camera-feed');
+      if (video) video.style.display = 'none';
+
+      if (hasOrientation) {
+        mode = 'planetarium';
+        // Make A-Frame canvas opaque (no camera behind it)
+        const sceneEl = document.querySelector('a-scene');
+        if (sceneEl) {
+          sceneEl.setAttribute('renderer', 'alpha: false; antialias: true; colorManagement: true');
+          sceneEl.style.background = '#0a0a2e';
+        }
+        createSkySphere();
+        initCompass();
+        initARScene();
+        startGazeDetection();
+        setInterval(updatePositions, 60000);
+      } else {
+        requestedMode = '_fallback';
+      }
+    }
+
+    if (requestedMode === '_fallback' || mode === 'none') {
+      // 2D fallback: no gyroscope at all
       mode = 'fallback';
       const sceneEl = document.querySelector('a-scene');
       if (sceneEl) sceneEl.style.display = 'none';
@@ -472,9 +538,7 @@ const AstroScene = (() => {
 
   /* Navigate to a constellation (AR mode): smoothly rotate scene to look at it */
   function lookAt(constellationId) {
-    if (mode !== 'ar') return;
-    // In AR mode with device orientation, we can't override the camera.
-    // Instead we could highlight the constellation. For now, just pulse it.
+    if (mode !== 'ar' && mode !== 'planetarium') return;
     highlightConstellation(constellationId);
   }
 
