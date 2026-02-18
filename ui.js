@@ -147,7 +147,7 @@ const AppUI = (() => {
     const id = currentId();
     const narration = NARRATIONS[id];
     if (narration) {
-      GreekTTS.speak(narration.intro);
+      GreekTTS.playNarration(id, 'intro', narration.intro);
     }
   }
 
@@ -155,7 +155,7 @@ const AppUI = (() => {
     const id = currentId();
     const narration = NARRATIONS[id];
     if (narration) {
-      GreekTTS.speak(narration.detail);
+      GreekTTS.playNarration(id, 'detail', narration.detail);
     }
   }
 
@@ -171,7 +171,7 @@ const AppUI = (() => {
     if (idx !== -1) currentIndex = idx;
     const narration = NARRATIONS[id];
     if (narration) {
-      GreekTTS.speak(narration.intro);
+      GreekTTS.playNarration(id, 'intro', narration.intro);
     }
   }
 
