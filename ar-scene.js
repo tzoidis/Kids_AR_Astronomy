@@ -30,6 +30,14 @@ const AstroScene = (() => {
   let fallbackCentroidPos = {};
   let fallbackCircle = { cx: 0, cy: 0, r: 0 };
   let shootingStarNextSpawn = 0;
+  let fallbackDragAngle = 0;      // degrees offset from real-time
+  let fallbackDragging = false;
+  let fallbackDragStartAngle = 0;
+  let fallbackDragStartOffset = 0;
+  let fallbackSnapBack = false;
+  let fallbackDragMoved = false;
+  let fallbackHorizonPath = [];
+  let fallbackStarAlts = {};       // id → [alt0, alt1, …]
 
   /* ---- Celestial Math ---- */
 
@@ -352,7 +360,22 @@ const AstroScene = (() => {
     }, 2000);
   }
 
-  /* ---- Fallback 2D Star Map ---- */
+  /* ---- Fallback 2D Star Map (Animated Planisphere) ---- */
+
+  /* Simplified mythology silhouettes — normalised [0,1] polygons */
+  const CONSTELLATION_ART = {
+    orion:          [[.5,.0],[.58,.1],[.78,.0],[.7,.18],[.58,.24],[.72,.55],[.78,1],[.55,.68],[.5,.78],[.45,.68],[.22,1],[.28,.55],[.42,.24],[.3,.18],[.22,.0],[.42,.1]],
+    ursaMajor:      [[.0,.15],[.08,.0],[.25,.04],[.5,.07],[.78,.04],[1,.18],[.95,.45],[.8,.68],[.6,.62],[.4,.65],[.18,.52],[.05,.35]],
+    ursaMinor:      [[.05,.22],[.15,.0],[.4,.06],[.7,.04],[.95,.2],[.9,.44],[.72,.62],[.42,.58],[.15,.48]],
+    cassiopeia:     [[.5,.0],[.6,.12],[.7,.22],[.65,.45],[.6,.65],[.5,.75],[.4,.65],[.35,.45],[.3,.22],[.4,.12]],
+    scorpius:       [[.12,.1],[.0,.18],[.1,.28],[.25,.22],[.4,.34],[.55,.5],[.65,.65],[.7,.82],[.62,.95],[.55,.88],[.6,.7],[.48,.52],[.32,.38],[.18,.26]],
+    leo:            [[.0,.22],[.05,.05],[.18,.0],[.3,.12],[.4,.22],[.58,.2],[.78,.18],[.95,.32],[1,.48],[.85,.44],[.7,.55],[.52,.68],[.32,.62],[.12,.52]],
+    cygnus:         [[.5,.0],[.42,.2],[.0,.28],[.18,.38],[.42,.42],[.5,.52],[.52,.78],[.5,1],[.48,.78],[.5,.52],[.58,.42],[.82,.38],[1,.28],[.58,.2]],
+    taurus:         [[.82,.0],[.78,.15],[.65,.3],[.55,.52],[.5,.72],[.45,.52],[.35,.3],[.22,.15],[.18,.0],[.38,.1],[.5,.16],[.62,.1]],
+    andromeda:      [[.5,.0],[.56,.15],[.78,.1],[1,.05],[.82,.18],[.58,.26],[.6,.52],[.58,.88],[.5,.72],[.42,.88],[.4,.52],[.42,.26],[.18,.18],[.0,.05],[.22,.1],[.44,.15]],
+    hercules:       [[.5,.0],[.58,.14],[.82,.0],[.74,.18],[.6,.26],[.58,.5],[.68,.85],[.55,.72],[.5,.58],[.45,.72],[.32,.85],[.42,.5],[.4,.26],[.26,.18],[.18,.0],[.42,.14]],
+    camelopardalis: [[.45,.0],[.55,.0],[.55,.15],[.58,.3],[.65,.44],[.7,.65],[.62,.85],[.55,.62],[.5,.55],[.45,.62],[.38,.85],[.3,.65],[.35,.44],[.42,.3],[.45,.15]],
+  };
 
   function initFallbackMap() {
     const canvas = document.getElementById('fallback-canvas');
@@ -376,7 +399,9 @@ const AstroScene = (() => {
 
     computeFallbackLayout();
 
+    /* ── Click (suppressed during drag) ── */
     canvas.addEventListener('click', (e) => {
+      if (fallbackDragMoved) return;
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
       const x = (e.clientX - rect.left) * dpr;
@@ -391,14 +416,69 @@ const AstroScene = (() => {
       }
     });
 
+    /* ── Touch-to-rotate ── */
+    function dragAngleFromEvent(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      const dx = clientX - rect.left - rect.width / 2;
+      const dy = clientY - rect.top - rect.height * 0.44;
+      return Math.atan2(dx, -dy);
+    }
+
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      fallbackDragStartAngle = dragAngleFromEvent(e.touches[0].clientX, e.touches[0].clientY);
+      fallbackDragStartOffset = fallbackDragAngle;
+      fallbackDragging = true;
+      fallbackSnapBack = false;
+      fallbackDragMoved = false;
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (!fallbackDragging || e.touches.length !== 1) return;
+      const angle = dragAngleFromEvent(e.touches[0].clientX, e.touches[0].clientY);
+      let delta = angle - fallbackDragStartAngle;
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      if (delta < -Math.PI) delta += 2 * Math.PI;
+      fallbackDragAngle = fallbackDragStartOffset + delta * RAD;
+      fallbackDragMoved = true;
+      computeFallbackLayout();
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', () => {
+      fallbackDragging = false;
+      fallbackSnapBack = true;
+    }, { passive: true });
+
+    /* ── Mouse drag (desktop) ── */
+    let mouseDown = false;
+    canvas.addEventListener('mousedown', (e) => {
+      fallbackDragStartAngle = dragAngleFromEvent(e.clientX, e.clientY);
+      fallbackDragStartOffset = fallbackDragAngle;
+      fallbackDragging = true;
+      fallbackSnapBack = false;
+      fallbackDragMoved = false;
+      mouseDown = true;
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!mouseDown) return;
+      const angle = dragAngleFromEvent(e.clientX, e.clientY);
+      let delta = angle - fallbackDragStartAngle;
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      if (delta < -Math.PI) delta += 2 * Math.PI;
+      fallbackDragAngle = fallbackDragStartOffset + delta * RAD;
+      fallbackDragMoved = true;
+      computeFallbackLayout();
+    });
+    window.addEventListener('mouseup', () => {
+      if (mouseDown) { mouseDown = false; fallbackDragging = false; fallbackSnapBack = true; }
+    });
+
     window.addEventListener('resize', () => {
       resizeFallbackCanvas(canvas);
       computeFallbackLayout();
     });
 
-    // Recompute projection every 2 min (sky drifts ~0.5°)
     setInterval(computeFallbackLayout, 120000);
-
     requestAnimationFrame(fallbackTick);
   }
 
@@ -410,7 +490,7 @@ const AstroScene = (() => {
     canvas.style.height = window.innerHeight + 'px';
   }
 
-  /* North-polar equidistant projection: RA/Dec → screen x,y */
+  /* North-polar equidistant projection (with drag rotation & horizon) */
   function computeFallbackLayout() {
     if (!fallbackCtx) return;
     const W = fallbackCtx.canvas.width;
@@ -425,27 +505,30 @@ const AstroScene = (() => {
 
     const now = new Date();
     const jd = julianDate(now);
-    const lst = localSiderealTime(jd, longitude); // degrees
+    const lst = localSiderealTime(jd, longitude);
+    const effectiveLST = lst + fallbackDragAngle;
     const MIN_DEC = -45;
-    const decRange = 90 - MIN_DEC; // 135°
+    const decRange = 90 - MIN_DEC;
 
+    /* Project stars */
     fallbackStarPos = {};
     fallbackCentroidPos = {};
+    fallbackStarAlts = {};
     fallbackHitAreas = [];
 
     CONSTELLATION_ORDER.forEach(id => {
       const c = CONSTELLATIONS[id];
+      const alts = [];
       const projected = c.stars.map(s => {
-        const theta = (lst - s.raH * 15) * DEG;
+        const theta = (effectiveLST - s.raH * 15) * DEG;
         const rNorm = (90 - s.decDeg) / decRange;
         const r = rNorm * maxR;
-        return {
-          sx: cx + r * Math.sin(theta),
-          sy: cy - r * Math.cos(theta),
-          star: s,
-        };
+        const { alt } = raDecToAltAz(s.raH, s.decDeg, effectiveLST, latitude);
+        alts.push(alt);
+        return { sx: cx + r * Math.sin(theta), sy: cy - r * Math.cos(theta), star: s };
       });
       fallbackStarPos[id] = projected;
+      fallbackStarAlts[id] = alts;
 
       const avgX = projected.reduce((sum, p) => sum + p.sx, 0) / projected.length;
       const avgY = projected.reduce((sum, p) => sum + p.sy, 0) / projected.length;
@@ -458,10 +541,31 @@ const AstroScene = (() => {
       });
       fallbackHitAreas.push({ id, x: avgX, y: avgY, r: Math.max(maxDist + 15 * dpr, 35 * dpr) });
     });
+
+    /* Compute horizon curve (alt = 0 boundary) */
+    fallbackHorizonPath = [];
+    const latR = latitude * DEG;
+    for (let i = 0; i <= 360; i++) {
+      const ha = i * DEG;
+      const tanDec = -Math.cos(ha) / Math.tan(latR);
+      const dec = Math.atan(tanDec) * RAD;
+      const rNorm = (90 - dec) / decRange;
+      const r = Math.min(rNorm, 1.05) * maxR;
+      const theta = (i + fallbackDragAngle) * DEG;
+      fallbackHorizonPath.push({ sx: cx + r * Math.sin(theta), sy: cy - r * Math.cos(theta) });
+    }
   }
 
   function fallbackTick(ts) {
     if (mode !== 'fallback') return;
+
+    /* Snap-back rotation toward 0 */
+    if (fallbackSnapBack && !fallbackDragging) {
+      fallbackDragAngle *= 0.9;
+      if (Math.abs(fallbackDragAngle) < 0.3) { fallbackDragAngle = 0; fallbackSnapBack = false; }
+      computeFallbackLayout();
+    }
+
     drawFallbackFrame(ts);
     requestAnimationFrame(fallbackTick);
   }
@@ -493,7 +597,6 @@ const AstroScene = (() => {
     /* ── 3. Sky circle ── */
     const { cx, cy, r: skyR } = fallbackCircle;
 
-    // Outer ring glow
     ctx.save();
     ctx.strokeStyle = 'rgba(80, 120, 255, 0.12)';
     ctx.lineWidth = 2 * dpr;
@@ -504,7 +607,6 @@ const AstroScene = (() => {
     ctx.stroke();
     ctx.restore();
 
-    // Inner radial gradient
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, skyR);
     grad.addColorStop(0, 'rgba(20, 25, 80, 0.25)');
     grad.addColorStop(0.7, 'rgba(10, 15, 50, 0.15)');
@@ -513,6 +615,9 @@ const AstroScene = (() => {
     ctx.beginPath();
     ctx.arc(cx, cy, skyR, 0, Math.PI * 2);
     ctx.fill();
+
+    /* ── 4. Horizon shading ── */
+    drawHorizonShade(ctx, cx, cy, skyR, dpr);
 
     // Pole marker
     ctx.save();
@@ -526,14 +631,23 @@ const AstroScene = (() => {
     ctx.fillText('✦', cx, cy - 6 * dpr);
     ctx.restore();
 
-    /* ── 4. Constellations ── */
+    /* ── 5. Constellations (art + lines + stars) ── */
     CONSTELLATION_ORDER.forEach(id => {
       const c = CONSTELLATIONS[id];
       const projected = fallbackStarPos[id];
       if (!projected) return;
+      const alts = fallbackStarAlts[id] || [];
+
+      // Horizon fade: dim constellations that are mostly below the horizon
+      const avgAlt = alts.length ? alts.reduce((s, a) => s + a, 0) / alts.length : 90;
+      const horizFade = avgAlt < -10 ? 0.18 : avgAlt < 0 ? 0.18 + ((avgAlt + 10) / 10) * 0.42 : avgAlt < 10 ? 0.6 + (avgAlt / 10) * 0.4 : 1.0;
+
+      // Constellation art silhouette
+      drawConstellationArt(ctx, id, projected, dpr, horizFade);
 
       // Glow lines
       ctx.save();
+      ctx.globalAlpha = horizFade;
       ctx.strokeStyle = 'rgba(80, 160, 255, 0.25)';
       ctx.lineWidth = 4 * dpr;
       ctx.shadowColor = 'rgba(80, 160, 255, 0.4)';
@@ -549,6 +663,7 @@ const AstroScene = (() => {
 
       // Sharp lines
       ctx.save();
+      ctx.globalAlpha = horizFade;
       ctx.strokeStyle = 'rgba(180, 210, 255, 0.5)';
       ctx.lineWidth = 1.5 * dpr;
       ctx.lineCap = 'round';
@@ -561,10 +676,12 @@ const AstroScene = (() => {
       ctx.restore();
 
       // Stars
-      projected.forEach(p => {
+      projected.forEach((p, i) => {
         const mag = p.star.mag;
         const r = Math.max(2, (5 - mag) * 1.2) * dpr;
+        const starFade = (alts[i] != null && alts[i] < 0) ? 0.22 : horizFade;
         ctx.save();
+        ctx.globalAlpha = starFade;
         ctx.shadowColor = mag < 1.5 ? '#FFD700' : 'rgba(180, 210, 255, 0.7)';
         ctx.shadowBlur = Math.max(4, (4 - mag) * 3) * dpr;
         ctx.fillStyle = mag < 1.0 ? '#FFD700' : mag < 2.0 ? '#FFF8DC' : '#D8E4FF';
@@ -572,17 +689,20 @@ const AstroScene = (() => {
         ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        // Bright core
+        ctx.save();
+        ctx.globalAlpha = starFade;
         ctx.fillStyle = '#fff';
         ctx.beginPath();
         ctx.arc(p.sx, p.sy, r * 0.45, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
       });
 
-      // Label below lowest star
+      // Label
       const centroid = fallbackCentroidPos[id];
       const maxStarY = Math.max(...projected.map(p => p.sy));
       ctx.save();
+      ctx.globalAlpha = horizFade;
       ctx.font = `bold ${12 * dpr}px "Fredoka One", sans-serif`;
       ctx.fillStyle = '#FFD700';
       ctx.textAlign = 'center';
@@ -593,7 +713,7 @@ const AstroScene = (() => {
       ctx.restore();
     });
 
-    /* ── 5. Tap pulse ── */
+    /* ── 6. Tap pulse ── */
     if (fallbackTapPulse) {
       const elapsed = (ts - fallbackTapPulse.start) / 1000;
       const duration = 0.8;
@@ -601,7 +721,6 @@ const AstroScene = (() => {
         const progress = elapsed / duration;
         const alpha = 1 - progress;
 
-        // Expanding ring
         ctx.save();
         ctx.strokeStyle = `rgba(255, 215, 0, ${(alpha * 0.7).toFixed(3)})`;
         ctx.lineWidth = 3 * dpr;
@@ -612,7 +731,6 @@ const AstroScene = (() => {
         ctx.stroke();
         ctx.restore();
 
-        // Brighten constellation stars
         const projected = fallbackStarPos[fallbackTapPulse.id];
         if (projected) {
           projected.forEach(p => {
@@ -632,6 +750,160 @@ const AstroScene = (() => {
         fallbackTapPulse = null;
       }
     }
+
+    /* ── 7. Moon phase widget ── */
+    drawMoonWidget(ctx, W, H, dpr);
+  }
+
+  /* ── Horizon shade: fill the below-horizon region ── */
+  function drawHorizonShade(ctx, cx, cy, skyR, dpr) {
+    if (!fallbackHorizonPath.length) return;
+    ctx.save();
+
+    // Clip to the sky circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, skyR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Horizon curve path (above-horizon interior)
+    ctx.beginPath();
+    fallbackHorizonPath.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.sx, p.sy);
+      else ctx.lineTo(p.sx, p.sy);
+    });
+    ctx.closePath();
+
+    // Fill everything OUTSIDE the horizon (using even-odd with a cover rect)
+    ctx.rect(cx - skyR - 10, cy - skyR - 10, skyR * 2 + 20, skyR * 2 + 20);
+    ctx.fillStyle = 'rgba(5, 8, 25, 0.42)';
+    ctx.fill('evenodd');
+
+    // Subtle horizon line glow
+    ctx.beginPath();
+    fallbackHorizonPath.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.sx, p.sy);
+      else ctx.lineTo(p.sx, p.sy);
+    });
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(80, 140, 200, 0.18)';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.shadowColor = 'rgba(80, 140, 200, 0.25)';
+    ctx.shadowBlur = 8 * dpr;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  /* ── Constellation mythology silhouette ── */
+  function drawConstellationArt(ctx, id, projected, dpr, horizFade) {
+    const art = CONSTELLATION_ART[id];
+    if (!art || projected.length < 2) return;
+
+    // Bounding box of projected stars (expanded)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    projected.forEach(p => {
+      if (p.sx < minX) minX = p.sx; if (p.sx > maxX) maxX = p.sx;
+      if (p.sy < minY) minY = p.sy; if (p.sy > maxY) maxY = p.sy;
+    });
+    const padX = Math.max((maxX - minX) * 0.35, 12 * dpr);
+    const padY = Math.max((maxY - minY) * 0.35, 12 * dpr);
+    minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (w < 1 || h < 1) return;
+
+    ctx.save();
+    ctx.globalAlpha = 0.07 * horizFade;
+    ctx.fillStyle = '#5080dd';
+    ctx.shadowColor = 'rgba(60, 100, 220, 0.3)';
+    ctx.shadowBlur = 12 * dpr;
+    ctx.beginPath();
+    art.forEach(([nx, ny], i) => {
+      const x = minX + nx * w;
+      const y = minY + ny * h;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ── Moon phase computation ── */
+  function getMoonPhase(date) {
+    const knownNew = Date.UTC(2000, 0, 6, 18, 14, 0);
+    const synodicMonth = 29.53059;
+    const days = (date.getTime() - knownNew) / 86400000;
+    return ((days % synodicMonth) + synodicMonth) % synodicMonth / synodicMonth;
+  }
+
+  function getMoonPhaseName(p) {
+    if (p < 0.03 || p > 0.97) return 'Νέα Σελήνη';
+    if (p < 0.22) return 'Αύξων Μηνίσκος';
+    if (p < 0.28) return 'Πρώτο Τέταρτο';
+    if (p < 0.47) return 'Αύξων Αμφίκυρτος';
+    if (p < 0.53) return 'Πανσέληνος';
+    if (p < 0.72) return 'Φθίνων Αμφίκυρτος';
+    if (p < 0.78) return 'Τελευταίο Τέταρτο';
+    return 'Φθίνων Μηνίσκος';
+  }
+
+  function drawMoonWidget(ctx, W, H, dpr) {
+    const phase = getMoonPhase(new Date());
+    const moonR = 18 * dpr;
+    const mx = W - 55 * dpr;
+    const my = 55 * dpr;
+
+    // Moon disc
+    ctx.save();
+    ctx.shadowColor = 'rgba(255, 255, 200, 0.25)';
+    ctx.shadowBlur = 15 * dpr;
+    ctx.beginPath();
+    ctx.arc(mx, my, moonR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Dark base
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(mx - moonR, my - moonR, moonR * 2, moonR * 2);
+
+    // Lit portion
+    ctx.fillStyle = '#FFF8DC';
+    ctx.beginPath();
+    const sweep = phase <= 0.5 ? phase * 2 : (1 - phase) * 2;
+    const tw = moonR * Math.cos(sweep * Math.PI);
+    if (phase <= 0.5) {
+      ctx.arc(mx, my, moonR, -Math.PI / 2, Math.PI / 2, false);
+      ctx.ellipse(mx, my, Math.abs(tw), moonR, 0, Math.PI / 2, -Math.PI / 2, tw > 0);
+    } else {
+      ctx.arc(mx, my, moonR, Math.PI / 2, -Math.PI / 2, false);
+      ctx.ellipse(mx, my, Math.abs(tw), moonR, 0, -Math.PI / 2, Math.PI / 2, tw > 0);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Moon outline
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200, 200, 180, 0.25)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath();
+    ctx.arc(mx, my, moonR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Phase label
+    ctx.save();
+    ctx.font = `${9 * dpr}px "Nunito", sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.55)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(getMoonPhaseName(phase), mx, my + moonR + 6 * dpr);
+
+    // "Σελήνη" header
+    ctx.font = `bold ${10 * dpr}px "Fredoka One", sans-serif`;
+    ctx.fillStyle = 'rgba(255, 255, 200, 0.45)';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('Σελήνη', mx, my - moonR - 5 * dpr);
+    ctx.restore();
   }
 
   /* Shooting star spawning & rendering */
