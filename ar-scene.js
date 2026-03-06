@@ -22,7 +22,14 @@ const AstroScene = (() => {
 
   // Fallback canvas state
   let fallbackCtx = null;
-  let fallbackHitAreas = []; // {id, x, y, w, h}
+  let fallbackHitAreas = []; // {id, x, y, r}
+  let fallbackBgStars = [];
+  let fallbackShootingStars = [];
+  let fallbackTapPulse = null;
+  let fallbackStarPos = {};
+  let fallbackCentroidPos = {};
+  let fallbackCircle = { cx: 0, cy: 0, r: 0 };
+  let shootingStarNextSpawn = 0;
 
   /* ---- Celestial Math ---- */
 
@@ -351,20 +358,33 @@ const AstroScene = (() => {
     const canvas = document.getElementById('fallback-canvas');
     if (!canvas) return;
     canvas.style.display = 'block';
-    canvas.width = window.innerWidth * window.devicePixelRatio;
-    canvas.height = window.innerHeight * window.devicePixelRatio;
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
+    resizeFallbackCanvas(canvas);
     fallbackCtx = canvas.getContext('2d');
-    drawFallbackMap();
+
+    // Generate twinkling background stars
+    const rng = mulberry32(42);
+    fallbackBgStars = [];
+    for (let i = 0; i < 400; i++) {
+      fallbackBgStars.push({
+        nx: rng(), ny: rng(),
+        r: rng() * 1.8 + 0.2,
+        phase: rng() * Math.PI * 2,
+        speed: 0.3 + rng() * 1.5,
+        maxAlpha: 0.15 + rng() * 0.55,
+      });
+    }
+
+    computeFallbackLayout();
 
     canvas.addEventListener('click', (e) => {
       const rect = canvas.getBoundingClientRect();
-      const x = (e.clientX - rect.left) * window.devicePixelRatio;
-      const y = (e.clientY - rect.top) * window.devicePixelRatio;
+      const dpr = window.devicePixelRatio || 1;
+      const x = (e.clientX - rect.left) * dpr;
+      const y = (e.clientY - rect.top) * dpr;
       for (const area of fallbackHitAreas) {
-        if (x >= area.x - area.w / 2 && x <= area.x + area.w / 2 &&
-            y >= area.y - area.h / 2 && y <= area.y + area.h / 2) {
+        const dx = x - area.x, dy = y - area.y;
+        if (dx * dx + dy * dy < area.r * area.r) {
+          fallbackTapPulse = { id: area.id, start: performance.now(), cx: area.x, cy: area.y };
           if (onConstellationTap) onConstellationTap(area.id);
           break;
         }
@@ -372,116 +392,294 @@ const AstroScene = (() => {
     });
 
     window.addEventListener('resize', () => {
-      canvas.width = window.innerWidth * window.devicePixelRatio;
-      canvas.height = window.innerHeight * window.devicePixelRatio;
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
-      drawFallbackMap();
+      resizeFallbackCanvas(canvas);
+      computeFallbackLayout();
+    });
+
+    // Recompute projection every 2 min (sky drifts ~0.5°)
+    setInterval(computeFallbackLayout, 120000);
+
+    requestAnimationFrame(fallbackTick);
+  }
+
+  function resizeFallbackCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+  }
+
+  /* North-polar equidistant projection: RA/Dec → screen x,y */
+  function computeFallbackLayout() {
+    if (!fallbackCtx) return;
+    const W = fallbackCtx.canvas.width;
+    const H = fallbackCtx.canvas.height;
+    const dpr = window.devicePixelRatio || 1;
+
+    const padding = 50 * dpr;
+    const maxR = Math.min(W / 2, H * 0.40) - padding;
+    const cx = W / 2;
+    const cy = H * 0.44;
+    fallbackCircle = { cx, cy, r: maxR };
+
+    const now = new Date();
+    const jd = julianDate(now);
+    const lst = localSiderealTime(jd, longitude); // degrees
+    const MIN_DEC = -45;
+    const decRange = 90 - MIN_DEC; // 135°
+
+    fallbackStarPos = {};
+    fallbackCentroidPos = {};
+    fallbackHitAreas = [];
+
+    CONSTELLATION_ORDER.forEach(id => {
+      const c = CONSTELLATIONS[id];
+      const projected = c.stars.map(s => {
+        const theta = (lst - s.raH * 15) * DEG;
+        const rNorm = (90 - s.decDeg) / decRange;
+        const r = rNorm * maxR;
+        return {
+          sx: cx + r * Math.sin(theta),
+          sy: cy - r * Math.cos(theta),
+          star: s,
+        };
+      });
+      fallbackStarPos[id] = projected;
+
+      const avgX = projected.reduce((sum, p) => sum + p.sx, 0) / projected.length;
+      const avgY = projected.reduce((sum, p) => sum + p.sy, 0) / projected.length;
+      fallbackCentroidPos[id] = { sx: avgX, sy: avgY };
+
+      let maxDist = 0;
+      projected.forEach(p => {
+        const dx = p.sx - avgX, dy = p.sy - avgY;
+        maxDist = Math.max(maxDist, Math.sqrt(dx * dx + dy * dy));
+      });
+      fallbackHitAreas.push({ id, x: avgX, y: avgY, r: Math.max(maxDist + 15 * dpr, 35 * dpr) });
     });
   }
 
-  function drawFallbackMap() {
+  function fallbackTick(ts) {
+    if (mode !== 'fallback') return;
+    drawFallbackFrame(ts);
+    requestAnimationFrame(fallbackTick);
+  }
+
+  function drawFallbackFrame(ts) {
     const ctx = fallbackCtx;
     if (!ctx) return;
     const W = ctx.canvas.width;
     const H = ctx.canvas.height;
     const dpr = window.devicePixelRatio || 1;
+    const t = ts / 1000;
 
     ctx.clearRect(0, 0, W, H);
 
-    // Background stars
-    ctx.fillStyle = '#fff';
-    const rng = mulberry32(42);
-    for (let i = 0; i < 200; i++) {
-      const sx = rng() * W;
-      const sy = rng() * H;
-      const sr = rng() * 1.5 + 0.3;
-      ctx.globalAlpha = rng() * 0.5 + 0.3;
+    /* ── 1. Twinkling background stars ── */
+    fallbackBgStars.forEach(s => {
+      const alpha = s.maxAlpha * (0.5 + 0.5 * Math.sin(t * s.speed + s.phase));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(sx, sy, sr * dpr, 0, Math.PI * 2);
+      ctx.arc(s.nx * W, s.ny * H, s.r * dpr, 0, Math.PI * 2);
       ctx.fill();
-    }
+    });
     ctx.globalAlpha = 1;
 
-    // Layout constellations in a grid
-    fallbackHitAreas = [];
-    const ids = CONSTELLATION_ORDER;
-    const cols = W > H ? 3 : 2;
-    const rows = Math.ceil(ids.length / cols);
-    const cellW = W / cols;
-    const cellH = H / (rows + 0.5);
+    /* ── 2. Shooting stars ── */
+    updateShootingStars(ctx, W, H, dpr, t);
 
-    ids.forEach((id, idx) => {
+    /* ── 3. Sky circle ── */
+    const { cx, cy, r: skyR } = fallbackCircle;
+
+    // Outer ring glow
+    ctx.save();
+    ctx.strokeStyle = 'rgba(80, 120, 255, 0.12)';
+    ctx.lineWidth = 2 * dpr;
+    ctx.shadowColor = 'rgba(80, 120, 255, 0.25)';
+    ctx.shadowBlur = 25 * dpr;
+    ctx.beginPath();
+    ctx.arc(cx, cy, skyR, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Inner radial gradient
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, skyR);
+    grad.addColorStop(0, 'rgba(20, 25, 80, 0.25)');
+    grad.addColorStop(0.7, 'rgba(10, 15, 50, 0.15)');
+    grad.addColorStop(1, 'rgba(5, 5, 30, 0.05)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, skyR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pole marker
+    ctx.save();
+    ctx.fillStyle = 'rgba(100, 140, 255, 0.35)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `${10 * dpr}px "Nunito", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('✦', cx, cy - 6 * dpr);
+    ctx.restore();
+
+    /* ── 4. Constellations ── */
+    CONSTELLATION_ORDER.forEach(id => {
       const c = CONSTELLATIONS[id];
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const cx = cellW * (col + 0.5);
-      const cy = cellH * (row + 0.8);
+      const projected = fallbackStarPos[id];
+      if (!projected) return;
 
-      const bounds = getConstellationBounds(c);
-      const scale = Math.min(cellW * 0.6, cellH * 0.5) / Math.max(bounds.rangeRA, bounds.rangeDec, 1);
-
-      // Lines
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-      ctx.lineWidth = 1.5 * dpr;
+      // Glow lines
+      ctx.save();
+      ctx.strokeStyle = 'rgba(80, 160, 255, 0.25)';
+      ctx.lineWidth = 4 * dpr;
+      ctx.shadowColor = 'rgba(80, 160, 255, 0.4)';
+      ctx.shadowBlur = 10 * dpr;
+      ctx.lineCap = 'round';
       c.lines.forEach(([a, b]) => {
-        const [ax, ay] = starToCell(c.stars[a], bounds, cx, cy, scale);
-        const [bx, by] = starToCell(c.stars[b], bounds, cx, cy, scale);
         ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
+        ctx.moveTo(projected[a].sx, projected[a].sy);
+        ctx.lineTo(projected[b].sx, projected[b].sy);
         ctx.stroke();
       });
+      ctx.restore();
+
+      // Sharp lines
+      ctx.save();
+      ctx.strokeStyle = 'rgba(180, 210, 255, 0.5)';
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.lineCap = 'round';
+      c.lines.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(projected[a].sx, projected[a].sy);
+        ctx.lineTo(projected[b].sx, projected[b].sy);
+        ctx.stroke();
+      });
+      ctx.restore();
 
       // Stars
-      c.stars.forEach(s => {
-        const [sx, sy] = starToCell(s, bounds, cx, cy, scale);
-        const r = Math.max(2, (4 - s.mag) * 1.2) * dpr;
-        ctx.fillStyle = s.mag < 1.5 ? '#FFD700' : '#FFFDE7';
+      projected.forEach(p => {
+        const mag = p.star.mag;
+        const r = Math.max(2, (5 - mag) * 1.2) * dpr;
+        ctx.save();
+        ctx.shadowColor = mag < 1.5 ? '#FFD700' : 'rgba(180, 210, 255, 0.7)';
+        ctx.shadowBlur = Math.max(4, (4 - mag) * 3) * dpr;
+        ctx.fillStyle = mag < 1.0 ? '#FFD700' : mag < 2.0 ? '#FFF8DC' : '#D8E4FF';
         ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowColor = '#FFD700';
-        ctx.shadowBlur = 8 * dpr;
+        ctx.restore();
+        // Bright core
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, r * 0.45, 0, Math.PI * 2);
         ctx.fill();
-        ctx.shadowBlur = 0;
       });
 
-      // Label
-      const fontSize = 14 * dpr;
-      ctx.font = `bold ${fontSize}px "Fredoka One", sans-serif`;
+      // Label below lowest star
+      const centroid = fallbackCentroidPos[id];
+      const maxStarY = Math.max(...projected.map(p => p.sy));
+      ctx.save();
+      ctx.font = `bold ${12 * dpr}px "Fredoka One", sans-serif`;
       ctx.fillStyle = '#FFD700';
       ctx.textAlign = 'center';
-      ctx.fillText(c.nameEl, cx, cy + cellH * 0.35);
+      ctx.textBaseline = 'top';
+      ctx.shadowColor = 'rgba(255, 215, 0, 0.4)';
+      ctx.shadowBlur = 6 * dpr;
+      ctx.fillText(c.nameEl, centroid.sx, maxStarY + 8 * dpr);
+      ctx.restore();
+    });
 
-      fallbackHitAreas.push({
-        id, x: cx, y: cy,
-        w: cellW * 0.8, h: cellH * 0.8,
+    /* ── 5. Tap pulse ── */
+    if (fallbackTapPulse) {
+      const elapsed = (ts - fallbackTapPulse.start) / 1000;
+      const duration = 0.8;
+      if (elapsed < duration) {
+        const progress = elapsed / duration;
+        const alpha = 1 - progress;
+
+        // Expanding ring
+        ctx.save();
+        ctx.strokeStyle = `rgba(255, 215, 0, ${(alpha * 0.7).toFixed(3)})`;
+        ctx.lineWidth = 3 * dpr;
+        ctx.shadowColor = `rgba(255, 215, 0, ${alpha.toFixed(3)})`;
+        ctx.shadowBlur = 15 * dpr;
+        ctx.beginPath();
+        ctx.arc(fallbackTapPulse.cx, fallbackTapPulse.cy, 15 * dpr + progress * 50 * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+
+        // Brighten constellation stars
+        const projected = fallbackStarPos[fallbackTapPulse.id];
+        if (projected) {
+          projected.forEach(p => {
+            const r = Math.max(3, (5 - p.star.mag) * 1.5) * dpr;
+            ctx.save();
+            ctx.globalAlpha = alpha * 0.7;
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = 20 * dpr;
+            ctx.beginPath();
+            ctx.arc(p.sx, p.sy, r * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          });
+        }
+      } else {
+        fallbackTapPulse = null;
+      }
+    }
+  }
+
+  /* Shooting star spawning & rendering */
+  function updateShootingStars(ctx, W, H, dpr, t) {
+    if (t > shootingStarNextSpawn) {
+      shootingStarNextSpawn = t + 2.5 + Math.random() * 4;
+      const angle = Math.PI * 0.1 + Math.random() * Math.PI * 0.3;
+      const speed = (150 + Math.random() * 250) * dpr;
+      fallbackShootingStars.push({
+        startTime: t,
+        startX: Math.random() * W * 0.7 + W * 0.1,
+        startY: Math.random() * H * 0.3,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        maxLife: 0.4 + Math.random() * 0.4,
+        length: (30 + Math.random() * 50) * dpr,
       });
-    });
-  }
+    }
 
-  function getConstellationBounds(c) {
-    let minRA = Infinity, maxRA = -Infinity, minDec = Infinity, maxDec = -Infinity;
-    c.stars.forEach(s => {
-      if (s.raH < minRA) minRA = s.raH;
-      if (s.raH > maxRA) maxRA = s.raH;
-      if (s.decDeg < minDec) minDec = s.decDeg;
-      if (s.decDeg > maxDec) maxDec = s.decDeg;
-    });
-    return {
-      minRA, maxRA, minDec, maxDec,
-      rangeRA: maxRA - minRA,
-      rangeDec: maxDec - minDec,
-      centerRA: (minRA + maxRA) / 2,
-      centerDec: (minDec + maxDec) / 2,
-    };
-  }
+    fallbackShootingStars = fallbackShootingStars.filter(s => {
+      const age = t - s.startTime;
+      if (age > s.maxLife) return false;
 
-  function starToCell(star, bounds, cx, cy, scale) {
-    const x = cx - (star.raH - bounds.centerRA) * scale;
-    const y = cy - (star.decDeg - bounds.centerDec) * scale;
-    return [x, y];
+      const x = s.startX + s.vx * age;
+      const y = s.startY + s.vy * age;
+      const progress = age / s.maxLife;
+      const alpha = progress < 0.2 ? progress / 0.2 : 1 - (progress - 0.2) / 0.8;
+
+      const v = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
+      const tailX = x - (s.vx / v) * s.length;
+      const tailY = y - (s.vy / v) * s.length;
+
+      const grad = ctx.createLinearGradient(tailX, tailY, x, y);
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      grad.addColorStop(1, `rgba(255, 255, 255, ${alpha.toFixed(3)})`);
+
+      ctx.save();
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 1.5 * dpr;
+      ctx.shadowColor = 'rgba(200, 220, 255, 0.4)';
+      ctx.shadowBlur = 3 * dpr;
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.restore();
+      return true;
+    });
   }
 
   /* Seeded PRNG (Mulberry32) */
