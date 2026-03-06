@@ -69,7 +69,7 @@ const AstroScene = (() => {
   function altAzToXYZ(altDeg, azDeg, radius) {
     const altR = altDeg * DEG;
     const azR = azDeg * DEG;
-    const x = -radius * Math.cos(altR) * Math.sin(azR);
+    const x = radius * Math.cos(altR) * Math.sin(azR);
     const y = radius * Math.sin(altR);
     const z = -radius * Math.cos(altR) * Math.cos(azR);
     return { x, y, z };
@@ -479,7 +479,7 @@ const AstroScene = (() => {
   }
 
   function starToCell(star, bounds, cx, cy, scale) {
-    const x = cx + (star.raH - bounds.centerRA) * scale;
+    const x = cx - (star.raH - bounds.centerRA) * scale;
     const y = cy - (star.decDeg - bounds.centerDec) * scale;
     return [x, y];
   }
