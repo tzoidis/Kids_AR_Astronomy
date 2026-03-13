@@ -108,6 +108,8 @@ const AppUI = (() => {
   }
 
   function startLabelLoop() {
+    let compassCheckCounter = 0;
+    const compassHint = document.getElementById('compass-hint');
     function tick() {
       const positions = AstroScene.getScreenPositions();
       CONSTELLATION_ORDER.forEach(id => {
@@ -122,6 +124,18 @@ const AppUI = (() => {
           el.classList.remove('visible');
         }
       });
+
+      // Check compass health every ~120 frames (~2s)
+      compassCheckCounter++;
+      if (compassHint && compassCheckCounter % 120 === 0) {
+        const health = AstroScene.getCompassHealth();
+        if (health.needsCalibration) {
+          compassHint.classList.add('visible');
+        } else {
+          compassHint.classList.remove('visible');
+        }
+      }
+
       labelAnimFrame = requestAnimationFrame(tick);
     }
     labelAnimFrame = requestAnimationFrame(tick);

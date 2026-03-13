@@ -16,6 +16,14 @@ const AstroScene = (() => {
   let onConstellationGaze = null; // callback(constellationId)
   let onConstellationTap = null;  // callback(constellationId)
 
+  // Compass smoothing state
+  let compassSmoothed = null;     // smoothed heading (degrees)
+  let compassSamples = [];        // recent raw samples for stability check
+  const COMPASS_SMOOTH_FACTOR = 0.15; // lower = smoother but laggier
+  const COMPASS_SAMPLE_WINDOW = 20;   // samples to keep for stability
+  let compassStale = false;       // true when sensor stops updating
+  let compassLastEventTime = 0;   // timestamp of last orientation event
+
   // Screen-space label tracking
   let screenPositions = {}; // id → { x, y, visible }
   let labelUpdateRunning = false;
@@ -136,6 +144,38 @@ const AstroScene = (() => {
 
   /* ---- Compass ---- */
 
+  /**
+   * Smooth angular interpolation that handles the 0°/360° wraparound.
+   * Returns a new angle between 0–360.
+   */
+  function lerpAngle(current, target, factor) {
+    let diff = target - current;
+    // Wrap to [-180, 180]
+    while (diff > 180) diff -= 360;
+    while (diff < -180) diff += 360;
+    let result = current + diff * factor;
+    return ((result % 360) + 360) % 360;
+  }
+
+  /**
+   * Compute heading stability: standard deviation of recent samples.
+   * High values → sensor is unreliable / drifting.
+   */
+  function compassStability() {
+    if (compassSamples.length < 5) return 999;
+    // Use circular mean/variance
+    let sinSum = 0, cosSum = 0;
+    for (const s of compassSamples) {
+      sinSum += Math.sin(s * DEG);
+      cosSum += Math.cos(s * DEG);
+    }
+    sinSum /= compassSamples.length;
+    cosSum /= compassSamples.length;
+    const R = Math.sqrt(sinSum * sinSum + cosSum * cosSum);
+    // Circular std dev in degrees (0 = perfectly stable)
+    return Math.sqrt(-2 * Math.log(Math.max(R, 0.001))) * RAD;
+  }
+
   function initCompass() {
     const handler = (e) => {
       let heading = null;
@@ -144,9 +184,29 @@ const AstroScene = (() => {
       } else if (e.alpha !== null) {
         heading = (360 - e.alpha) % 360; // Android
       }
-      if (heading !== null) {
-        compassOffset = heading;
+      if (heading === null) return;
+
+      compassLastEventTime = Date.now();
+      compassStale = false;
+
+      // Track raw samples for stability measurement
+      compassSamples.push(heading);
+      if (compassSamples.length > COMPASS_SAMPLE_WINDOW) {
+        compassSamples.shift();
       }
+
+      // Apply exponential smoothing with wraparound handling
+      if (compassSmoothed === null) {
+        compassSmoothed = heading; // first reading — accept as-is
+      } else {
+        // If reading jumps wildly (>90°), use slower smoothing to dampen
+        let diff = Math.abs(heading - compassSmoothed);
+        if (diff > 180) diff = 360 - diff;
+        const factor = diff > 90 ? COMPASS_SMOOTH_FACTOR * 0.3 : COMPASS_SMOOTH_FACTOR;
+        compassSmoothed = lerpAngle(compassSmoothed, heading, factor);
+      }
+
+      compassOffset = compassSmoothed;
     };
 
     if (window.DeviceOrientationAbsoluteEvent) {
@@ -160,6 +220,13 @@ const AstroScene = (() => {
         typeof DeviceOrientationEvent.requestPermission === 'function') {
       DeviceOrientationEvent.requestPermission().catch(() => {});
     }
+
+    // Detect stale sensor (stops sending events)
+    setInterval(() => {
+      if (compassLastEventTime > 0 && Date.now() - compassLastEventTime > 3000) {
+        compassStale = true;
+      }
+    }, 2000);
   }
 
   /* ---- Geolocation ---- */
@@ -1012,7 +1079,7 @@ const AstroScene = (() => {
         initCompass();
         initARScene();
         startGazeDetection();
-        setInterval(updatePositions, 60000);
+        setInterval(updatePositions, 15000);
       } else {
         if (hasOrientation) {
           requestedMode = 'indoor';
@@ -1037,7 +1104,7 @@ const AstroScene = (() => {
         initCompass();
         initARScene();
         startGazeDetection();
-        setInterval(updatePositions, 60000);
+        setInterval(updatePositions, 15000);
       } else {
         requestedMode = '_fallback';
       }
@@ -1106,5 +1173,29 @@ const AstroScene = (() => {
     });
   }
 
-  return { init, getMode, lookAt, highlightConstellation, getVisibleConstellations, getScreenPositions };
+  /**
+   * Returns compass health info for the UI.
+   * - stability: circular std dev in degrees (lower = better, <15 is good)
+   * - stale: true if sensor stopped sending events (>3s gap)
+   * - needsCalibration: true if the user should wave the phone in a figure-8
+   */
+  function getCompassHealth() {
+    const stability = compassStability();
+    return {
+      stability,
+      stale: compassStale,
+      needsCalibration: compassStale || stability > 25,
+    };
+  }
+
+  /**
+   * Reset compass smoothing — call after user performs calibration gesture.
+   */
+  function resetCompass() {
+    compassSmoothed = null;
+    compassSamples = [];
+    compassStale = false;
+  }
+
+  return { init, getMode, lookAt, highlightConstellation, getVisibleConstellations, getScreenPositions, getCompassHealth, resetCompass };
 })();
