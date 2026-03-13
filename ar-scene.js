@@ -25,6 +25,10 @@ const AstroScene = (() => {
   let compassStale = false;       // true when sensor stops updating
   let compassLastEventTime = 0;   // timestamp of last orientation event
 
+  // Camera heading extraction (gimbal-lock safe)
+  let smoothedCamHeading = null; // radians, smoothed camera yaw
+  const CAM_HEADING_SMOOTH = 0.12; // heavy smoothing for zenith stability
+
   // Screen-space label tracking
   let screenPositions = {}; // id → { x, y, visible }
   let labelUpdateRunning = false;
@@ -390,14 +394,55 @@ const AstroScene = (() => {
       centroidCache[id] = positions[id].centroid.pos;
     });
 
+    // Pre-allocate vectors (THREE is available after A-Frame loads)
+    const fwdVec = new THREE.Vector3();
+    const downVec = new THREE.Vector3();
+
+    function lerpAngleRad(current, target, factor) {
+      let diff = target - current;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      return current + diff * factor;
+    }
+
+    /**
+     * Extract camera heading (yaw) from quaternion without gimbal lock.
+     * Uses forward vector when phone is roughly horizontal; falls back
+     * to the camera's "down" vector when looking near zenith/nadir.
+     */
+    function getCameraHeadingRad() {
+      const q = camera.object3D.quaternion;
+
+      // Camera forward in world space
+      fwdVec.set(0, 0, -1).applyQuaternion(q);
+      const horizLen = Math.sqrt(fwdVec.x * fwdVec.x + fwdVec.z * fwdVec.z);
+
+      if (horizLen > 0.15) {
+        // Enough horizontal component — heading from forward vector
+        // In our convention: azimuth = atan2(x, -z) where +X=east, -Z=north
+        return Math.atan2(fwdVec.x, -fwdVec.z);
+      }
+
+      // Near zenith/nadir: forward is nearly vertical, so use the camera's
+      // "down" vector (local -Y) which still lies in the heading plane
+      downVec.set(0, -1, 0).applyQuaternion(q);
+      return Math.atan2(downVec.x, -downVec.z);
+    }
+
     function tick() {
-      // Continuously align sky-root so astronomical north matches compass north.
-      // Formula: skyRoot.rotation.y = camera.rotation.y + compassHeading (radians)
-      // This corrects for A-Frame's magic-window using relative (not absolute)
-      // device orientation — the compass heading bridges the gap.
+      // Align sky-root so astronomical north matches compass north.
+      // Uses gimbal-lock-safe heading extraction + smoothing so the
+      // sky stays stable even when looking straight up.
       if (skyRoot && camera) {
-        const camY = camera.object3D.rotation.y; // radians
-        skyRoot.object3D.rotation.y = camY + compassOffset * DEG;
+        const rawHeading = getCameraHeadingRad();
+        if (smoothedCamHeading === null) {
+          smoothedCamHeading = rawHeading;
+        } else {
+          smoothedCamHeading = lerpAngleRad(smoothedCamHeading, rawHeading, CAM_HEADING_SMOOTH);
+        }
+        // skyRoot.rotation.y = -cameraHeading + compassOffset
+        // (rotate sky so that azimuth=compassOffset aligns with camera forward)
+        skyRoot.object3D.rotation.y = -smoothedCamHeading + compassOffset * DEG;
       }
 
       CONSTELLATION_ORDER.forEach(id => {
