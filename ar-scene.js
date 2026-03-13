@@ -11,6 +11,7 @@ const AstroScene = (() => {
   let compassOffset = 0; // degrees, true-north correction
   let scene, camera;
   let constellationEntities = {}; // id → { group }
+  let skyRoot = null; // wrapper entity rotated by compass offset
   let gazeInterval = null;
   let lastGazedId = null;
   let onConstellationGaze = null; // callback(constellationId)
@@ -255,6 +256,12 @@ const AstroScene = (() => {
     camera = document.getElementById('ar-camera');
     if (!scene) return;
 
+    // Create sky-root wrapper — rotated by compass to align astronomical
+    // north with the device's actual heading
+    skyRoot = document.createElement('a-entity');
+    skyRoot.setAttribute('id', 'sky-root');
+    scene.appendChild(skyRoot);
+
     // Build constellation entities
     const positions = computePositions();
 
@@ -299,7 +306,7 @@ const AstroScene = (() => {
       });
       group.appendChild(tap);
 
-      scene.appendChild(group);
+      skyRoot.appendChild(group);
       constellationEntities[id] = { group };
     });
 
@@ -384,12 +391,22 @@ const AstroScene = (() => {
     });
 
     function tick() {
+      // Continuously align sky-root so astronomical north matches compass north.
+      // Formula: skyRoot.rotation.y = camera.rotation.y + compassHeading (radians)
+      // This corrects for A-Frame's magic-window using relative (not absolute)
+      // device orientation — the compass heading bridges the gap.
+      if (skyRoot && camera) {
+        const camY = camera.object3D.rotation.y; // radians
+        skyRoot.object3D.rotation.y = camY + compassOffset * DEG;
+      }
+
       CONSTELLATION_ORDER.forEach(id => {
-        // Read centroid from the tap target entity (stays in sync after updatePositions)
+        // Get the world position of the centroid (accounts for sky-root rotation)
         const clickable = constellationEntities[id]?.group?.querySelector('.clickable');
-        if (clickable) {
-          const pos = clickable.getAttribute('position');
-          centroidCache[id] = { x: pos.x, y: pos.y, z: pos.z };
+        if (clickable && clickable.object3D) {
+          const worldVec = new THREE.Vector3();
+          clickable.object3D.getWorldPosition(worldVec);
+          centroidCache[id] = { x: worldVec.x, y: worldVec.y, z: worldVec.z };
         }
 
         const projected = projectToScreen(centroidCache[id]);
@@ -1037,12 +1054,15 @@ const AstroScene = (() => {
     scene = document.querySelector('a-scene');
     if (!scene) return;
 
+    // Sky background sphere doesn't need compass alignment
     const sky = document.createElement('a-sphere');
     sky.setAttribute('radius', SKY_RADIUS + 50);
     sky.setAttribute('material', 'shader: flat; color: #0a0a2e; side: back');
     sky.setAttribute('id', 'sky-sphere');
     scene.appendChild(sky);
 
+    // Background stars go in skyRoot so they rotate with constellations
+    const parent = skyRoot || scene;
     const rng = mulberry32(123);
     for (let i = 0; i < 300; i++) {
       const theta = rng() * Math.PI * 2;
@@ -1058,7 +1078,7 @@ const AstroScene = (() => {
       dot.setAttribute('radius', size);
       const brightness = Math.floor(180 + rng() * 75);
       dot.setAttribute('material', `shader: flat; color: rgb(${brightness},${brightness},${Math.min(255, brightness + 30)}); opacity: ${0.4 + rng() * 0.6}`);
-      scene.appendChild(dot);
+      parent.appendChild(dot);
     }
   }
 
